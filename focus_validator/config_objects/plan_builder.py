@@ -100,8 +100,54 @@ class PlanGraph:
 
         if len(order) != len(self.nodes):
             blocked = [n for n, d in indeg.items() if d > 0]
-            raise ValueError(f"Active-edge cycle detected; blocked nodes: {blocked}")
+            cycle = self._find_cycle(
+                set(blocked), active_predicate=active_predicate, exec_ctx=exec_ctx
+            )
+            detail = f"; cycle: {' -> '.join(cycle)}" if cycle else ""
+            raise ValueError(
+                f"Active-edge cycle detected{detail}; blocked nodes: {blocked}. "
+                "The rules model declares circular dependencies between these "
+                "rules; use a corrected model release."
+            )
         return order, layers
+
+    def _find_cycle(
+        self,
+        candidates: Set[str],
+        *,
+        active_predicate: Callable[[EdgeCtx, dict], bool],
+        exec_ctx: dict,
+    ) -> List[str]:
+        """Return one dependency cycle among ``candidates`` as a closed path.
+
+        Edges point from a dependency to the rule that needs it, so the path
+        reads "A -> B" as "B depends on A". Iterative DFS, so deep models do
+        not hit the recursion limit.
+        """
+        state: Dict[str, int] = {}  # 1 = on stack, 2 = done
+        for start in sorted(candidates):
+            if state.get(start):
+                continue
+            path: List[str] = [start]
+            iters = [iter(sorted(self.children.get(start, ())))]
+            state[start] = 1
+            while iters:
+                nxt = next(iters[-1], None)
+                if nxt is None:
+                    state[path.pop()] = 2
+                    iters.pop()
+                    continue
+                if nxt not in candidates:
+                    continue
+                if not active_predicate(self.edges[(path[-1], nxt)], exec_ctx):
+                    continue
+                if state.get(nxt) == 1:
+                    return path[path.index(nxt) :] + [nxt]
+                if not state.get(nxt):
+                    state[nxt] = 1
+                    path.append(nxt)
+                    iters.append(iter(sorted(self.children.get(nxt, ()))))
+        return []
 
 
 class PlanBuilder:

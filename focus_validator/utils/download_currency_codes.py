@@ -1,8 +1,16 @@
 import argparse
 import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Optional, Union
 
 import pandas as pd
 import requests
+
+# Bundled ISO 4217 code list, resolved from the installed package so the
+# validator works from any working directory.
+DEFAULT_CURRENCY_CODES_FILE = (
+    Path(__file__).resolve().parent.parent / "rules" / "currency_codes.csv"
+)
 
 DATAHUB_URL = "https://www.six-group.com/dam/download/financial-information/data-center/iso-currrency/lists/list-one.xml"
 
@@ -22,8 +30,10 @@ def download_currency_codes(output_file: str):  # pragma: no cover
     df.to_csv(output_file)
 
 
-def get_currency_codes(code_file: str) -> set:  # pragma: no cover
-    df = pd.read_csv(code_file)
+def get_currency_codes(
+    code_file: Optional[Union[str, Path]] = None,
+) -> set:
+    df = pd.read_csv(code_file or DEFAULT_CURRENCY_CODES_FILE)
     return set(df["currency_codes"].values)
 
 
@@ -32,7 +42,7 @@ if __name__ == "__main__":  # pragma: no cover
     parser.add_argument(
         "--output-file",
         help="Path to save the downloaded currency codes CSV file.",
-        default="focus_validator/rules/currency_codes.csv",
+        default=str(DEFAULT_CURRENCY_CODES_FILE),
         required=False,
     )
     args = parser.parse_args()
