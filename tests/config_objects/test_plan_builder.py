@@ -419,5 +419,44 @@ class TestPlanGraphIntegration(unittest.TestCase):
             self.assertIn(child, graph.children[parent])
 
 
+class TestTopoScheduleCycleReport(unittest.TestCase):
+    """A dependency cycle in the rules model is reported with its path."""
+
+    def _graph(self, edges):
+        graph = PlanGraph()
+        for parent, child in edges:
+            for rid in (parent, child):
+                graph.nodes.setdefault(
+                    rid, PlanNode(rule_id=rid, rule=Mock(spec=ModelRule))
+                )
+            graph.add_edge(parent, child, EdgeCtx(kind="data_dep"))
+        return graph
+
+    def test_cycle_path_in_error(self):
+        # "X -> Y" means Y depends on X. Root feeds a three-rule cycle.
+        graph = self._graph(
+            [("Root", "A"), ("A", "B"), ("B", "C"), ("C", "A"), ("C", "Leaf")]
+        )
+        with self.assertRaises(ValueError) as cm:
+            graph.topo_schedule()
+        msg = str(cm.exception)
+        self.assertIn("cycle: A -> B -> C -> A", msg)
+        self.assertIn("blocked nodes", msg)
+        self.assertNotIn("Root ->", msg)
+
+    def test_acyclic_graph_schedules(self):
+        graph = self._graph([("A", "B"), ("B", "C"), ("A", "C")])
+        order, _ = graph.topo_schedule()
+        self.assertEqual(order, ["A", "B", "C"])
+
+    def test_inactive_edge_does_not_close_cycle(self):
+        graph = self._graph([("A", "B"), ("B", "A")])
+        graph.edges[("B", "A")] = EdgeCtx(kind="data_dep", note="off")
+        order, _ = graph.topo_schedule(
+            active_predicate=lambda ectx, ctx: ectx.note != "off"
+        )
+        self.assertEqual(order, ["A", "B"])
+
+
 if __name__ == '__main__':
     unittest.main()
